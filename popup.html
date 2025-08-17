@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>LLM Chat & Scraper</title>
+  <style>
+    body {
+      min-width: 700px;
+      box-sizing: border-box;
+      font-family: Arial, sans-serif;
+    }
+    #chatWindow {
+      height: 500px;
+      width: 100%;
+      overflow-y: auto;
+      border: 1px solid #ccc;
+      margin-bottom: 10px;
+      padding: 5px;
+      background: #fafafa;
+      font-size: 14px;
+    }
+    #scrapedContent {
+      white-space: pre-wrap;
+      margin-top: 10px;
+      font-size: 12px;
+      color: #555;
+      border: 1px solid #eee;
+      padding: 5px;
+      background: #f5f5f5;
+      max-height: 60px;
+      overflow-y: auto;
+    }
+    #userInput {
+      width: 80%;
+      box-sizing: border-box;
+    }
+    #sendBtn {
+      width: 18%;
+    }
+  </style>
+</head>
+<body>
+  <div id="chatWindow"></div>
+  <input type="text" id="userInput" placeholder="Type your message..." />
+  <button id="sendBtn">Send</button>
+  <br><br>
+  <button id="scrapeBtn">Scrape This Page</button>
+  <button id="clearBtn">Clear Chat</button>
+  <button id="screenshotBtn">Take Screenshot</button>
+  <script src="scripts/popup.js"></script>
+</body>
+</html>
