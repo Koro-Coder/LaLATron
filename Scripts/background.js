@@ -16,6 +16,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             },
             body: JSON.stringify({
                 model: MODEL,
+                temperature: 0.3,
                 messages: request.messages
             })
         })

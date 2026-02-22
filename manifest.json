@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Lalatron",
+  "name": "LaLaTron",
   "version": "1.0",
   "description": "LLM Chat Extension",
   "permissions": ["scripting", "activeTab", "storage", "tabs"],
