@@ -131,3 +131,17 @@ document.getElementById("screenshotBtn").addEventListener("click", () => {
     }
   });
 });
+
+document.getElementById("autofillBtn").addEventListener("click", () => {
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    if (!tabs || !tabs.length) return;
+    chrome.tabs.sendMessage(tabs[0].id, { action: "autofillForm" }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.error("Autofill error:", chrome.runtime.lastError.message);
+        alert("Unable to autofill this page. It may be a restricted page or does not allow content scripts.");
+        return;
+      }
+      console.log("Autofill response:", response);
+    });
+  });
+});
