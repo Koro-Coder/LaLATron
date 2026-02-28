@@ -2,7 +2,7 @@ function getPageText() {
   return document.body.innerText;
 }
 
-// ---- Form memory + autofill helpers ----
+// ---- Form helpers for knowledge-based autofill ----
 
 function getFieldLabel(element) {
   const id = element.id;
@@ -112,129 +112,116 @@ function collectFormFields(form) {
   return fields;
 }
 
-function updateFieldMemoryFromForm(form) {
-  const url = window.location.href;
-  const hostname = window.location.hostname;
-  const now = Date.now();
-  const fields = collectFormFields(form);
+function collectAllFillableFields() {
+  const all = Array.from(document.querySelectorAll("input, textarea, select"));
+  const fillable = all.filter((el) => isFillableField(el));
+  console.log("[LaLaTron][autofill] Found inputs on page:", {
+    total: all.length,
+    fillable: fillable.length,
+  });
+  return fillable;
+}
 
-  chrome.storage.local.get(["fieldMemory"], (data) => {
-    const memory = Array.isArray(data.fieldMemory) ? data.fieldMemory : [];
+function requestAutofillFromKnowledge(sendResponse) {
+  const fields = collectAllFillableFields();
+  if (!fields.length) {
+    console.log("[LaLaTron][autofill] No fillable fields detected on this page.");
+    sendResponse({ status: "no_fields" });
+    return;
+  }
 
-    fields.forEach((el) => {
-      const value = el.value != null ? el.value.toString().trim() : "";
-      if (!value) return;
+  const descriptors = fields.map((el, index) => {
+    const desc = descriptorFromElement(el);
+    return {
+      index,
+      description: desc.raw,
+      tagName: el.tagName,
+      type: el.type || "",
+      name: el.name || "",
+      id: el.id || "",
+      placeholder: el.getAttribute("placeholder") || "",
+    };
+  });
 
-      const desc = descriptorFromElement(el);
-      if (!desc.tokens.length) return;
+  console.log("[LaLaTron][autofill] Sending field descriptors to background:", descriptors);
 
-      const entry = {
-        keyText: desc.raw,
-        tokens: desc.tokens,
-        value,
-        lastUpdated: now,
-        source: {
-          hostname,
-          url,
-        },
-      };
-
-      const existingIndex = memory.findIndex((m) => jaccardSimilarity(m.tokens, entry.tokens) > 0.8);
-      if (existingIndex >= 0) {
-        memory[existingIndex] = entry;
-      } else {
-        memory.push(entry);
+  chrome.runtime.sendMessage(
+    {
+      action: "autofillWithKnowledge",
+      url: window.location.href,
+      hostname: window.location.hostname,
+      fields: descriptors,
+    },
+    (response) => {
+      if (chrome.runtime.lastError) {
+        console.error("[LaLaTron][autofill] Error talking to background:", chrome.runtime.lastError);
+        sendResponse({ status: "error_runtime" });
+        return;
       }
-    });
 
-    chrome.storage.local.set({ fieldMemory: memory });
-  });
-}
+      console.log("[LaLaTron][autofill] Background responded with:", response);
 
-function attachFormListeners(root = document) {
-  const forms = root.querySelectorAll("form");
-  forms.forEach((form) => {
-    if (form.__lalaFormTracked) return;
-    form.__lalaFormTracked = true;
+      if (!response || !Array.isArray(response.suggestions)) {
+        console.warn("[LaLaTron][autofill] No suggestions array in response.", response);
+        sendResponse({
+          status: "no_suggestions",
+          error: response && response.error ? response.error : "No suggestions from knowledge source.",
+        });
+        return;
+      }
 
-    form.addEventListener(
-      "submit",
-      () => {
-        updateFieldMemoryFromForm(form);
-      },
-      true
-    );
-  });
-}
+      if (!response.suggestions.length) {
+        console.warn("[LaLaTron][autofill] Suggestions array is empty.", response);
+        sendResponse({
+          status: "no_suggestions",
+          error: response && response.error ? response.error : "Model returned an empty suggestion list.",
+        });
+        return;
+      }
 
-function autofillPageFromMemory() {
-  chrome.storage.local.get(["fieldMemory"], (data) => {
-    const memory = Array.isArray(data.fieldMemory) ? data.fieldMemory : [];
-    if (!memory.length) {
-      return;
-    }
+      response.suggestions.forEach((s) => {
+        const idx = typeof s.index === "number" ? s.index : null;
+        if (idx == null || idx < 0 || idx >= fields.length) return;
+        const value = s.value != null ? String(s.value) : "";
+        if (!value) return;
 
-    const allFields = Array.from(document.querySelectorAll("input, textarea, select")).filter((el) =>
-      isFillableField(el)
-    );
+        const el = fields[idx];
+        console.log("[LaLaTron][autofill] Applying suggestion:", {
+          index: idx,
+          value,
+          tagName: el.tagName,
+          type: el.type || "",
+          name: el.name || "",
+          id: el.id || "",
+        });
 
-    allFields.forEach((el) => {
-      const desc = descriptorFromElement(el);
-      if (!desc.tokens.length) return;
-
-      let bestEntry = null;
-      let bestScore = 0;
-
-      memory.forEach((entry) => {
-        const score = jaccardSimilarity(desc.tokens, entry.tokens);
-        if (score > bestScore) {
-          bestScore = score;
-          bestEntry = entry;
-        }
-      });
-
-      if (bestEntry && bestScore >= 0.5) {
         if (el instanceof HTMLSelectElement) {
+          let matched = false;
           Array.from(el.options).forEach((opt) => {
-            if (opt.value === bestEntry.value || opt.text === bestEntry.value) {
+            if (opt.value === value || opt.text === value) {
               el.value = opt.value;
+              matched = true;
             }
           });
+          if (!matched) {
+            el.value = value;
+          }
         } else {
-          el.value = bestEntry.value;
+          el.value = value;
         }
 
         const ev = new Event("input", { bubbles: true });
         el.dispatchEvent(ev);
         const ch = new Event("change", { bubbles: true });
         el.dispatchEvent(ch);
-      }
-    });
-  });
+      });
+
+      sendResponse({ status: "autofilled" });
+    }
+  );
 }
 
-// Initial wiring once content script loads
-attachFormListeners(document);
-
-const observer = new MutationObserver((mutations) => {
-  for (const m of mutations) {
-    if (m.type === "childList" && m.addedNodes.length) {
-      m.addedNodes.forEach((node) => {
-        if (!(node instanceof HTMLElement)) return;
-        if (node.tagName === "FORM" || node.querySelector && node.querySelector("form")) {
-          attachFormListeners(node);
-        }
-      });
-    }
-  }
-});
-
-observer.observe(document.documentElement || document.body, {
-  childList: true,
-  subtree: true,
-});
-
-// ---- Message handling (scrape + autofill trigger) ----
+// ---- Message handling (scrape + knowledge-based autofill) ----
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === "scrape") {
@@ -243,9 +230,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === "autofillForm") {
-    autofillPageFromMemory();
-    sendResponse({ status: "autofill_attempted" });
+    requestAutofillFromKnowledge(sendResponse);
+    return true; // async
   }
 });
 
-console.log("Content script loaded with scraping + form memory/autofill.");
+console.log("Content script loaded with scraping + knowledge-based autofill.");
