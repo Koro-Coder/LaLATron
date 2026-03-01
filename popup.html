@@ -281,6 +281,9 @@
         <button class="nav-item" data-view="autofill">
           Forms
         </button>
+        <button class="nav-item" data-view="bookmarks">
+          Bookmarks
+        </button>
         <button class="nav-item" data-view="settings">
           Settings
         </button>
@@ -352,6 +355,37 @@
             </div>
             <button id="autofillNowBtn" class="button button-primary">Autofill current page</button>
           </div>
+        </div>
+
+        <div class="section view" id="view-bookmarks">
+          <div class="section-header">
+            <div class="section-header-text">
+              <div class="section-title">In-page bookmarks</div>
+              <div class="section-subtitle">Save jump points inside the current page.</div>
+            </div>
+          </div>
+
+          <div class="settings-field" style="margin-bottom:6px;">
+            <label for="bookmarkTitleInput">Bookmark title</label>
+            <input
+              id="bookmarkTitleInput"
+              class="settings-input"
+              type="text"
+              placeholder="e.g. Experience section, Billing form"
+            />
+          </div>
+
+          <div id="bookmarkInfo" style="font-size:11px;color:#6b7280;margin-bottom:6px;"></div>
+
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+            <button id="addBookmarkBtn" class="button button-primary">Add bookmark here</button>
+            <button id="deleteAllBookmarksBtn" class="button">Delete all for this page</button>
+          </div>
+
+          <div
+            id="bookmarkList"
+            style="max-height:220px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:6px;padding:6px;font-size:12px;background:#fafafa;"
+          ></div>
         </div>
 
         <div class="section view" id="view-settings">

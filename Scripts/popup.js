@@ -444,10 +444,113 @@ document.getElementById("autofillKnowledgeList").addEventListener("change", () =
   });
 });
 
+function pageKeyFromUrl(url) {
+  try {
+    const u = new URL(url);
+    u.hash = "";
+    return u.toString();
+  } catch (e) {
+    return url || "unknown";
+  }
+}
+
+function renderBookmarks(pageKey, entries) {
+  const list = document.getElementById("bookmarkList");
+  const info = document.getElementById("bookmarkInfo");
+  if (!list || !info) return;
+
+  list.innerHTML = "";
+
+  if (!entries.length) {
+    const empty = document.createElement("div");
+    empty.textContent = "No bookmarks for this page yet.";
+    list.appendChild(empty);
+    info.textContent = "No bookmarks saved for this page.";
+    return;
+  }
+
+  entries
+    .slice()
+    .sort((a, b) => a.scrollY - b.scrollY)
+    .forEach((entry) => {
+      const row = document.createElement("div");
+      row.setAttribute("data-id", entry.id);
+      row.style.display = "flex";
+      row.style.justifyContent = "space-between";
+      row.style.alignItems = "flex-start";
+      row.style.gap = "6px";
+      row.style.marginBottom = "4px";
+
+      const main = document.createElement("div");
+      const title = document.createElement("div");
+      title.textContent = entry.title || "Untitled bookmark";
+      title.style.fontWeight = "600";
+      const preview = document.createElement("div");
+      preview.textContent = entry.preview || "";
+      preview.style.fontSize = "11px";
+      preview.style.color = "#6b7280";
+      main.appendChild(title);
+      if (entry.preview) {
+        main.appendChild(preview);
+      }
+
+      const actions = document.createElement("div");
+      actions.style.display = "flex";
+      actions.style.flexDirection = "column";
+      actions.style.gap = "4px";
+
+      const goBtn = document.createElement("button");
+      goBtn.textContent = "Go";
+      goBtn.className = "button";
+      goBtn.setAttribute("data-action", "go");
+      goBtn.style.padding = "2px 6px";
+      goBtn.style.fontSize = "11px";
+
+      const delBtn = document.createElement("button");
+      delBtn.textContent = "Delete";
+      delBtn.className = "button";
+      delBtn.setAttribute("data-action", "delete");
+      delBtn.style.padding = "2px 6px";
+      delBtn.style.fontSize = "11px";
+
+      actions.appendChild(goBtn);
+      actions.appendChild(delBtn);
+
+      row.appendChild(main);
+      row.appendChild(actions);
+      list.appendChild(row);
+    });
+
+  info.textContent = `Bookmarks on this page: ${entries.length}`;
+}
+
+function loadBookmarksUI() {
+  const list = document.getElementById("bookmarkList");
+  const info = document.getElementById("bookmarkInfo");
+  if (!list || !info) return;
+
+  list.innerHTML = "Loading bookmarks for this page...";
+  info.textContent = "";
+
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    if (!tabs || !tabs.length || !tabs[0].url) {
+      list.textContent = "No active tab.";
+      return;
+    }
+    const key = pageKeyFromUrl(tabs[0].url);
+    chrome.storage.local.get(["bookmarksByPage"], (data) => {
+      const map = data.bookmarksByPage || {};
+      const entries = Array.isArray(map[key]) ? map[key] : [];
+      renderBookmarks(key, entries);
+    });
+  });
+}
+
 function setActiveView(view) {
   const views = {
     chat: document.getElementById("view-chat"),
     autofill: document.getElementById("view-autofill"),
+    bookmarks: document.getElementById("view-bookmarks"),
     settings: document.getElementById("view-settings"),
   };
 
@@ -466,6 +569,8 @@ function setActiveView(view) {
     loadAutofillKnowledgeUI();
   } else if (view === "settings") {
     loadSettingsIntoUI();
+  } else if (view === "bookmarks") {
+    loadBookmarksUI();
   }
 }
 
@@ -479,3 +584,114 @@ document.querySelectorAll(".nav-item").forEach((btn) => {
 // Initialise auxiliary panels on first load
 loadAutofillKnowledgeUI();
 loadSettingsIntoUI();
+loadBookmarksUI();
+
+document.getElementById("bookmarkList").addEventListener("click", (e) => {
+  const target = e.target;
+  if (!(target instanceof HTMLElement)) return;
+  const action = target.getAttribute("data-action");
+  if (!action) return;
+  const row = target.closest("[data-id]");
+  if (!row) return;
+  const id = row.getAttribute("data-id");
+  if (!id) return;
+
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    if (!tabs || !tabs.length || !tabs[0].url) return;
+    const key = pageKeyFromUrl(tabs[0].url);
+
+    chrome.storage.local.get(["bookmarksByPage"], (data) => {
+      const map = data.bookmarksByPage || {};
+      let entries = Array.isArray(map[key]) ? map[key] : [];
+      const entry = entries.find((b) => b.id === id);
+      if (!entry) return;
+
+      if (action === "go") {
+        chrome.tabs.sendMessage(
+          tabs[0].id,
+          {
+            action: "scrollToBookmark",
+            scrollY: entry.scrollY,
+            innerScrollY:
+              typeof entry.innerScrollY === "number" ? entry.innerScrollY : null,
+          },
+          () => {
+            // ignore response
+          }
+        );
+      } else if (action === "delete") {
+        entries = entries.filter((b) => b.id !== id);
+        map[key] = entries;
+        chrome.storage.local.set({ bookmarksByPage: map }, () => {
+          renderBookmarks(key, entries);
+        });
+      }
+    });
+  });
+});
+
+document.getElementById("addBookmarkBtn").addEventListener("click", () => {
+  const titleInput = document.getElementById("bookmarkTitleInput");
+  const explicitTitle = titleInput && titleInput.value ? titleInput.value.trim() : "";
+
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    if (!tabs || !tabs.length || !tabs[0].id || !tabs[0].url) return;
+    const key = pageKeyFromUrl(tabs[0].url);
+
+    chrome.tabs.sendMessage(
+      tabs[0].id,
+      { action: "createBookmarkContext", title: explicitTitle },
+      (ctx) => {
+        if (chrome.runtime.lastError) {
+          console.error("[LaLaTron][bookmarks:UI] Error creating bookmark context:", chrome.runtime.lastError);
+          alert(
+            "Unable to create a bookmark on this page. It may be restricted or not allow content scripts."
+          );
+          return;
+        }
+        if (!ctx) return;
+
+        chrome.storage.local.get(["bookmarksByPage"], (data) => {
+          const map = data.bookmarksByPage || {};
+          const entries = Array.isArray(map[key]) ? map[key] : [];
+          const now = Date.now();
+          const entry = {
+            id: "b_" + now.toString(36),
+            title: ctx.title || explicitTitle || "Bookmark",
+            scrollY: typeof ctx.scrollY === "number" ? ctx.scrollY : 0,
+            innerScrollY:
+              typeof ctx.innerScrollY === "number" ? ctx.innerScrollY : null,
+            preview: ctx.selectionPreview || "",
+            createdAt: now,
+          };
+          entries.push(entry);
+          map[key] = entries;
+          chrome.storage.local.set({ bookmarksByPage: map }, () => {
+            if (titleInput && !explicitTitle) {
+              titleInput.value = entry.title;
+            }
+            renderBookmarks(key, entries);
+          });
+        });
+      }
+    );
+  });
+});
+
+document.getElementById("deleteAllBookmarksBtn").addEventListener("click", () => {
+  if (!confirm("Delete all bookmarks for this page?")) {
+    return;
+  }
+
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    if (!tabs || !tabs.length || !tabs[0].url) return;
+    const key = pageKeyFromUrl(tabs[0].url);
+    chrome.storage.local.get(["bookmarksByPage"], (data) => {
+      const map = data.bookmarksByPage || {};
+      map[key] = [];
+      chrome.storage.local.set({ bookmarksByPage: map }, () => {
+        renderBookmarks(key, []);
+      });
+    });
+  });
+});
