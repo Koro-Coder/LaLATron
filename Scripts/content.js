@@ -4,6 +4,24 @@ function getPageText() {
 
 // ---- Form helpers for knowledge-based autofill ----
 
+function findPrimaryScrollableContainer() {
+  const candidates = Array.from(
+    document.querySelectorAll("main, [role='main'], [data-testid='conversation-turns']")
+  );
+  for (const el of candidates) {
+    if (!(el instanceof HTMLElement)) continue;
+    const style = window.getComputedStyle(el);
+    const overflowY = style.overflowY;
+    if (
+      (overflowY === "auto" || overflowY === "scroll") &&
+      el.scrollHeight > el.clientHeight + 10
+    ) {
+      return el;
+    }
+  }
+  return null;
+}
+
 function getFieldLabel(element) {
   const id = element.id;
   if (id) {
@@ -232,6 +250,71 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.action === "autofillForm") {
     requestAutofillFromKnowledge(sendResponse);
     return true; // async
+  }
+
+  if (msg.action === "createBookmarkContext") {
+    const scrollY =
+      window.scrollY ||
+      document.documentElement.scrollTop ||
+      document.body.scrollTop ||
+      0;
+    let selectionPreview = "";
+    try {
+      const sel = window.getSelection && window.getSelection();
+      if (sel && sel.toString) {
+        selectionPreview = sel.toString().trim().slice(0, 200);
+      }
+    } catch (e) {
+      // ignore
+    }
+    const explicitTitle =
+      msg.title && typeof msg.title === "string" ? msg.title.trim() : "";
+    const title =
+      explicitTitle ||
+      (selectionPreview
+        ? selectionPreview.slice(0, 60)
+        : document.title || "Bookmark");
+
+    const innerContainer = findPrimaryScrollableContainer();
+    const innerScrollY =
+      innerContainer && typeof innerContainer.scrollTop === "number"
+        ? innerContainer.scrollTop
+        : null;
+
+    console.log("[LaLaTron][bookmarks] Created bookmark context", {
+      scrollY,
+      innerScrollY,
+      title,
+      selectionPreview,
+    });
+
+    sendResponse({ scrollY, innerScrollY, selectionPreview, title });
+    return;
+  }
+
+  if (msg.action === "scrollToBookmark") {
+    const hasWindowScroll = typeof msg.scrollY === "number";
+    const hasInnerScroll = typeof msg.innerScrollY === "number";
+
+    if (hasInnerScroll) {
+      const container = findPrimaryScrollableContainer();
+      if (container) {
+        console.log("[LaLaTron][bookmarks] Scrolling inner container to", msg.innerScrollY);
+        container.scrollTo({ top: msg.innerScrollY, behavior: "smooth" });
+        sendResponse({ status: "ok", target: "inner" });
+        return;
+      }
+    }
+
+    if (hasWindowScroll) {
+      console.log("[LaLaTron][bookmarks] Scrolling window to", msg.scrollY);
+      window.scrollTo({ top: msg.scrollY, behavior: "smooth" });
+      sendResponse({ status: "ok", target: "window" });
+      return;
+    }
+
+    sendResponse({ status: "no_scroll_target" });
+    return;
   }
 });
 
