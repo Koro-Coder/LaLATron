@@ -2,8 +2,8 @@
 
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const DEFAULT_CHAT_MODEL = "llama-3.3-70b-versatile";
-const DEFAULT_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
-const DEFAULT_API_KEY = "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";
+const DEFAULT_VISION_MODEL = "qwen/qwen3.6-27b";
+const DEFAULT_API_KEY = "";
 
 function getRuntimeSettings() {
   return new Promise((resolve) => {
@@ -94,6 +94,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
               data.choices[0].message &&
               data.choices[0].message.content
                 ? data.choices[0].message.content
+                : data.error && data.error.message
+                ? "Error from Groq: " + data.error.message
                 : "No reply from LLM.";
             sendResponse({ reply });
           });
@@ -150,6 +152,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
               data.choices[0].message &&
               data.choices[0].message.content
                 ? data.choices[0].message.content
+                : data.error && data.error.message
+                ? "Error from Groq: " + data.error.message
                 : "No reply from LLM.";
             sendResponse({ reply });
           });
@@ -248,6 +252,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           .then((res) => res.json())
           .then((data) => {
             console.log("[LaLaTron][autofill:bg] Groq raw response", data);
+
+            if (data.error && data.error.message) {
+              console.warn("[LaLaTron][autofill:bg] Groq returned an error", data.error);
+              sendResponse({
+                suggestions: [],
+                error: "Error from Groq: " + data.error.message,
+              });
+              return;
+            }
 
             const raw =
               data.choices &&
