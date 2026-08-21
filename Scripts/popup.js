@@ -297,7 +297,7 @@ document.getElementById("saveSettingsBtn").addEventListener("click", () => {
 
   const apiKey = apiKeyInput.value.trim();
   const chatModel = chatModelInput.value.trim() || "llama-3.3-70b-versatile";
-  const visionModel = visionModelInput.value.trim() || "meta-llama/llama-4-scout-17b-16e-instruct";
+  const visionModel = visionModelInput.value.trim() || "qwen/qwen3.6-27b";
 
   chrome.storage.local.set(
     {
